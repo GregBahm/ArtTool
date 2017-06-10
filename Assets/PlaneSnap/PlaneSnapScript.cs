@@ -5,11 +5,10 @@ using UnityEngine;
 using System.Linq;
 
 [RequireComponent(typeof(MeshFilter))]
-public class NewTryScript : Paintable
+public class PlaneSnapScript : Paintable
 {
     public float Margin;
-
-    private List<Vector3> _pointList;
+    
     private HashSet<Tri> _triList;
 
     private Mesh _mesh;
@@ -20,27 +19,41 @@ public class NewTryScript : Paintable
         _mesh = new Mesh();
         _meshFilter = GetComponent<MeshFilter>();
         _meshFilter.mesh = _mesh;
-        CreateInitialMeshData();
+        _triList = new HashSet<Tri>(GetInitialTris());
         UpdateMesh(_mesh, _triList);
+    }
+
+    private static List<Vert> GetBox()
+    {
+        Vert[] ret = new Vert[8];
+        ret[0] = new Vert(new Vector3(1, 1, 1));
+        ret[1] = new Vert(new Vector3(1, 0, 1));
+        ret[2] = new Vert(new Vector3(1, 1, 0));
+        ret[3] = new Vert(new Vector3(1, 0, 0));
+        ret[4] = new Vert(new Vector3(0, 1, 1));
+        ret[5] = new Vert(new Vector3(0, 0, 1));
+        ret[6] = new Vert(new Vector3(0, 1, 0));
+        ret[7] = new Vert(new Vector3(0, 0, 0));
+        return ret.ToList();
     }
 
     private void UpdateMesh(Mesh mesh, IEnumerable<Tri> tris)
     {
         List<Vector3> vertices = new List<Vector3>();
-        Dictionary<int, int> vertsDictionary = new Dictionary<int, int>();
+        Dictionary<Vert, int> vertsDictionary = new Dictionary<Vert, int>();
         List<int> triangle = new List<int>();
         List<Vector3> normals = new List<Vector3>();
         foreach (Tri tri in tris)
         {
             foreach (Vert polyVert in tri.Verts)
             {
-                if (!vertsDictionary.ContainsKey(polyVert.ID))
+                if (!vertsDictionary.ContainsKey(polyVert))
                 {
                     vertices.Add(polyVert.Pos);
                     normals.Add(tri.Normal);
-                    vertsDictionary.Add(polyVert.ID, vertsDictionary.Count);
+                    vertsDictionary.Add(polyVert, vertsDictionary.Count);
                 }
-                int newIndex = vertsDictionary[polyVert.ID];
+                int newIndex = vertsDictionary[polyVert];
                 triangle.Add(newIndex);
             }
         }
@@ -51,52 +64,59 @@ public class NewTryScript : Paintable
         mesh.normals = normals.ToArray();
     }
 
-    private void CreateInitialMeshData()
+    private static Tri GetInitialTri(Vert vert0, Vert vert1, Vert vert2, Vector3 centerPoint)
     {
-        Vector3 v0 = new Vector3(0, 0, 0);
-        Vector3 v1 = new Vector3(0, 0, 1);
-        Vector3 v2 = new Vector3(1, 0, 1);
-        Vector3 v3 = new Vector3(1, 0, 0);
-        _pointList = new List<Vector3> { v0, v1, v2, v3 };
-        Tri tri0 = new Tri(v0, v1, v2, 0, 1, 2, new Vector3(0, 1, 0));
+        Vector3 polyCenter = (vert0.Pos + vert1.Pos + vert2.Pos) / 3;
+        Vector3 normalGuide = centerPoint - polyCenter;
+        return new Tri(vert0, vert1, vert2, normalGuide);
+    }
 
-        _triList = new HashSet<Tri> { tri0, };
-        
-        //Tri tri1 = new Tri(v0, v2, v3, 0, 2, 3, new Vector3(0, 1, 0));
-        //_triList = new List<Tri> { tri0, tri1 };
+    private static IEnumerable<Tri> GetTrisOfCube(Vert vert0, Vert vert1, Vert vert2, Vert vert3)
+    {
+        yield return GetInitialTri(vert0, vert1, vert2, Vector3.one / 2);
+        yield return GetInitialTri(vert1, vert2, vert3, Vector3.one / 2);
+    }
+    private static List<Tri> GetInitialTris()
+    {
+        List<Vert> pointsList = GetBox();
+        List<Tri> ret = new List<Tri>();
+        ret.AddRange(GetTrisOfCube(pointsList[0], pointsList[1], pointsList[2], pointsList[3]));
+        ret.AddRange(GetTrisOfCube(pointsList[2], pointsList[3], pointsList[6], pointsList[7]));
+        ret.AddRange(GetTrisOfCube(pointsList[6], pointsList[7], pointsList[4], pointsList[5]));
+        ret.AddRange(GetTrisOfCube(pointsList[0], pointsList[1], pointsList[4], pointsList[5]));
+        ret.AddRange(GetTrisOfCube(pointsList[4], pointsList[0], pointsList[6], pointsList[2]));
+        ret.AddRange(GetTrisOfCube(pointsList[1], pointsList[3], pointsList[5], pointsList[7]));
+        return ret;
     }
 
     public override void AddPoint(Vector3 point)
     {
+        Vert vert = new Vert(point);
         bool addPoint = false;
         Tri[] oldTriList = _triList.ToArray();
         foreach (Tri tri in oldTriList)
         {
-            bool newTris = ProcessTri(tri, point, _pointList.Count);
+            bool newTris = ProcessTri(tri, vert);
             addPoint = addPoint || newTris;
-        }
-        if(addPoint)
-        {
-            _pointList.Add(point);
         }
         UpdateMesh(_mesh, _triList);
     }
 
-    private bool ProcessTri(Tri tri, Vector3 point, int pointId)
+    private bool ProcessTri(Tri tri, Vert vert)
     {
-        if(!tri.IsPointCloseToTrianglesPlane(point, Margin))
+        if(!tri.IsPointCloseToTrianglesPlane(vert.Pos, Margin))
         {
             return false;
         }
 
-        EdgeDistStatus[] EdgeDistStatus = tri.Edges.Select(edge => new EdgeDistStatus(edge, point, Margin)).ToArray();
+        EdgeDistStatus[] EdgeDistStatus = tri.Edges.Select(edge => new EdgeDistStatus(edge, vert.Pos, Margin)).ToArray();
 
-        if (EdgeDistStatus.Any(item => item.WithinMargin) || tri.IsPointWithinBounds(point))
+        if (EdgeDistStatus.Any(item => item.WithinMargin) || tri.IsPointWithinBounds(vert.Pos))
         {
             _triList.Remove(tri);
             foreach (EdgeDistStatus newEdgeSource in EdgeDistStatus.Where(item => !item.WithinMargin))
             {
-                Tri newTri = TriFromEdgeToPoint(newEdgeSource.Edge, point, pointId, tri.Normal);
+                Tri newTri = TriFromEdgeToPoint(newEdgeSource.Edge, vert, -tri.Normal);
                 _triList.Add(newTri);
             }
             return true;
@@ -104,11 +124,11 @@ public class NewTryScript : Paintable
         return false;
     }
 
-    private Tri TriFromEdgeToPoint(Edge newEdgeSource, Vector3 point, int pointId, Vector3 normal)
+    private Tri TriFromEdgeToPoint(Edge newEdgeSource, Vert point, Vector3 normal)
     {
         Vert vert0 = newEdgeSource.Vert0;
         Vert vert1 = newEdgeSource.Vert1;
-        return new Tri(vert0.Pos, vert1.Pos, point, vert0.ID, vert1.ID, pointId, normal);
+        return new Tri(vert0, vert1, point, normal);
     }
 
     private struct EdgeDistStatus
@@ -138,16 +158,8 @@ public class NewTryScript : Paintable
 
         public Edge(Vert vert0, Vert vert1)
         {
-            if (vert0.ID < vert1.ID)
-            {
-                _vert0 = vert0;
-                _vert1 = vert1;
-            }
-            else
-            {
-                _vert0 = vert1;
-                _vert1 = vert0;
-            }
+            _vert0 = vert0;
+            _vert1 = vert1;
             _length = (_vert0.Pos - _vert1.Pos).magnitude;
         }
 
@@ -199,27 +211,25 @@ public class NewTryScript : Paintable
         }
         public override int GetHashCode()
         {
-            return _vert0.ID.GetHashCode() ^ _vert1.ID.GetHashCode();
+            return _vert0.GetHashCode() ^ _vert1.GetHashCode();
         }
-
         public static bool operator ==(Edge x, Edge y)
         {
-            return x._vert0.ID == y._vert0.ID && x._vert1.ID == y._vert1.ID;
+            return (x._vert0 == y._vert0 && x._vert1 == y._vert1)
+            || (x._vert0 == y._vert1 && x._vert1 == y._vert0);
         }
         public static bool operator !=(Edge x, Edge y)
         {
             return !(x == y);
         }
     }
-
-    public struct Vert
+    
+    public class Vert
     {
         public readonly Vector3 Pos;
-        public readonly int ID;
-        public Vert(Vector3 pos, int id)
+        public Vert(Vector3 pos)
         {
             Pos = pos;
-            ID = id;
         }
     }
 
@@ -262,43 +272,29 @@ public class NewTryScript : Paintable
             }
         }
 
-        public Tri(int vert0Id,
-        int vert1Id,
-        int vert2Id,
-        List<Vector3> points,
-        Vector3 normalGuide)
-            : this(points[vert0Id], points[vert1Id], points[vert2Id], vert0Id, vert1Id, vert2Id, normalGuide)
-        { }
-
-        public Tri(Vector3 vert0,
-          Vector3 vert1,
-          Vector3 vert2,
-          int vert0Id,
-          int vert1Id,
-          int vert2Id,
-          Vector3 normalGuide)
+        public Tri(Vert vert0,
+            Vert vert1,
+            Vert vert2,
+            Vector3 normalGuide)
         {
-            _vert0 = new Vert(vert0, vert0Id);
-            Vector3 normal = Vector3.Cross(vert0 - vert1, vert0 - vert2).normalized;
-            if (Vector3.Dot(normalGuide, normal) > 0) //TODO: Might need to reverse this
+            _vert0 = vert0;
+            Vector3 normal = Vector3.Cross(vert0.Pos - vert1.Pos, vert0.Pos - vert2.Pos).normalized;
+            if (Vector3.Dot(normalGuide, normal) < 0)
             {
-                _vert1 = new Vert(vert1, vert1Id);
-                _vert2 = new Vert(vert2, vert2Id);
-                _plane = new Plane(vert0, vert1, vert2);
+                _vert1 = vert1;
+                _vert2 = vert2;
+                _plane = new Plane(vert0.Pos, vert1.Pos, vert2.Pos);
             }
             else
             {
-                _vert1 = new Vert(vert2, vert2Id);
-                _vert2 = new Vert(vert1, vert1Id);
-                _plane = new Plane(vert0, vert2, vert1);
+                _vert1 = vert2;
+                _vert2 = vert1;
+                _plane = new Plane(vert0.Pos, vert2.Pos, vert1.Pos);
             }
-
             _edge0 = new Edge(_vert0, _vert1);
             _edge1 = new Edge(_vert1, _vert2);
             _edge2 = new Edge(_vert0, _vert2);
         }
-
-        
 
         internal bool IsPointCloseToTrianglesPlane(Vector3 point, float margin)
         {
