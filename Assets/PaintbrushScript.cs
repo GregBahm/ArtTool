@@ -30,7 +30,8 @@ public class PaintbrushScript : MonoBehaviour
         if(dist > MoveThreshold || ManuallyPaint)
         {
             lastPaintPoint = transform.position;
-            Mothership.AddPoint(currentPos);
+            
+            Mothership.AddPoint(Mothership.transform.InverseTransformPoint(currentPos));
         }
         ManuallyPaint = false;
     }

@@ -92,36 +92,60 @@ public class PlaneSnapScript : Paintable
     public override void AddPoint(Vector3 point)
     {
         Vert vert = new Vert(point);
-        bool addPoint = false;
         Tri[] oldTriList = _triList.ToArray();
+        List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
         foreach (Tri tri in oldTriList)
         {
-            bool newTris = ProcessTri(tri, vert);
-            addPoint = addPoint || newTris;
+            edgesToProcess.AddRange(GetEdgesToProcess(tri, vert));
         }
+        List< EdgeDistStatus> culledEdges = GetCulledEdges(edgesToProcess).ToList();
+        DrawNewPolys(culledEdges, vert);
         UpdateMesh(_mesh, _triList);
     }
 
-    private bool ProcessTri(Tri tri, Vert vert)
+    private IEnumerable<EdgeDistStatus> GetCulledEdges(IEnumerable<EdgeDistStatus> edgesToProcess)
+    {
+        // If both triangles of an edge have been removed, we don't want to build a new tri off that edge.
+        // Any edge found in the edgesToProcess set more than once must have had both its triangles removed
+        Dictionary<Edge, int> triPresenceCounter = new Dictionary<Edge, int>();
+        foreach (EdgeDistStatus status in edgesToProcess)
+        {
+            if(triPresenceCounter.ContainsKey(status.Edge))
+            {
+                triPresenceCounter[status.Edge]++;
+            }
+            else
+            {
+                triPresenceCounter.Add(status.Edge, 0);
+            }
+        }
+        return edgesToProcess.Where(item => triPresenceCounter[item.Edge] == 0);
+    }
+
+    private IEnumerable<EdgeDistStatus> GetEdgesToProcess(Tri tri, Vert vert)
     {
         if(!tri.IsPointCloseToTrianglesPlane(vert.Pos, Margin))
         {
-            return false;
+            return new EdgeDistStatus[0];
         }
 
-        EdgeDistStatus[] EdgeDistStatus = tri.Edges.Select(edge => new EdgeDistStatus(edge, vert.Pos, Margin)).ToArray();
-
-        if (EdgeDistStatus.Any(item => item.WithinMargin) || tri.IsPointWithinBounds(vert.Pos))
+        EdgeDistStatus[] edgeDistStatus = tri.Edges.Select(edge => new EdgeDistStatus(edge, tri, vert.Pos, Margin)).ToArray();
+        List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
+        if (edgeDistStatus.Any(item => item.WithinMargin) || tri.IsPointWithinBounds(vert.Pos))
         {
             _triList.Remove(tri);
-            foreach (EdgeDistStatus newEdgeSource in EdgeDistStatus.Where(item => !item.WithinMargin))
-            {
-                Tri newTri = TriFromEdgeToPoint(newEdgeSource.Edge, vert, -tri.Normal);
-                _triList.Add(newTri);
-            }
-            return true;
+            edgesToProcess.AddRange(edgeDistStatus.Where(item => !item.WithinMargin));
         }
-        return false;
+        return edgesToProcess;
+    }
+
+    private void DrawNewPolys(IEnumerable<EdgeDistStatus> edges, Vert vert)
+    {
+        foreach (EdgeDistStatus status in edges)
+        {
+            Tri newTri = TriFromEdgeToPoint(status.Edge, vert, -status.Tri.Normal);
+            _triList.Add(newTri);
+        }
     }
 
     private Tri TriFromEdgeToPoint(Edge newEdgeSource, Vert point, Vector3 normal)
@@ -139,9 +163,13 @@ public class PlaneSnapScript : Paintable
         private bool _withinMargin;
         public bool WithinMargin { get { return _withinMargin; } }
 
-        public EdgeDistStatus(Edge edge, Vector3 point, float margin)
+        private readonly Tri _tri;
+        public Tri Tri { get { return _tri; } }
+
+        public EdgeDistStatus(Edge edge, Tri tri, Vector3 point, float margin)
         {
             _edge = edge;
+            _tri = tri;
             _withinMargin = edge.DistanceTo(point) < margin;
         }
     }
