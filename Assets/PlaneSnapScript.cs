@@ -4,35 +4,25 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 
-[RequireComponent(typeof(MeshFilter))]
 public class PlaneSnapScript : Paintable
 {
     public float Margin;
     
     private HashSet<Tri> _triList;
 
-    private Mesh _mesh;
-    private MeshFilter _meshFilter;
+    private Mesh _mainMesh;
+    private Mesh _previewMesh;
+    public MeshFilter MainMeshFilter;
+    public MeshFilter PreviewMeshFilter;
 
     private void Start()
     {
-        _mesh = new Mesh();
-        _meshFilter = GetComponent<MeshFilter>();
-        _meshFilter.mesh = _mesh;
-        _triList = new HashSet<Tri>(GetDebugTri());
-        UpdateMesh(_mesh, _triList);
-    }
-
-    private IEnumerable<Tri> GetDebugTri()
-    {
-        Vector3 pos0 = new Vector3(-0.445f, 0.35f, 0.8f);
-        Vector3 pos1 = new Vector3(0, 1, 1);
-        Vector3 pos2 = new Vector3(0, 0, 1);
-        Vector3 normalGuide = new Vector3(1, 0, 0);
-        Vert vert0 = new Vert(pos0);
-        Vert vert1 = new Vert(pos1);
-        Vert vert2 = new Vert(pos2);
-        yield return new Tri(vert0, vert1, vert2, normalGuide);
+        _mainMesh = new Mesh();
+        _previewMesh = new Mesh();
+        MainMeshFilter.mesh = _mainMesh;
+        PreviewMeshFilter.mesh = _previewMesh;
+        _triList = new HashSet<Tri>(GetInitialTris());
+        UpdateMesh(_mainMesh, _triList);
     }
 
     public override void AddPoint(Vector3 point, bool previewMode)
@@ -47,14 +37,20 @@ public class PlaneSnapScript : Paintable
         }
         List<EdgeDistStatus> culledEdges = GetCulledEdges(edgesToProcess).ToList();
         DrawNewPolys(culledEdges, vert, newTris);
-        UpdateMesh(_mesh, newTris);
-        if(!previewMode)
+        Mesh meshToUpdate = previewMode ? _previewMesh : _mainMesh;
+        UpdateMesh(meshToUpdate, newTris);
+        if (previewMode)
         {
+            PreviewMeshFilter.mesh = _previewMesh;
+        }
+        else
+        {
+            PreviewMeshFilter.mesh = _mainMesh;
             _triList = newTris;
         }
     }
 
-    private static List<Vert> GetBox()
+    private static List<Vert> GetBoxVerts()
     {
         Vert[] ret = new Vert[8];
         ret[0] = new Vert(new Vector3(1, 1, 1));
@@ -104,7 +100,7 @@ public class PlaneSnapScript : Paintable
     }
     private static IEnumerable<Tri> GetInitialTris()
     {
-        List<Vert> pointsList = GetBox();
+        List<Vert> pointsList = GetBoxVerts();
         List<Tri> ret = new List<Tri>();
         ret.AddRange(GetTrisOfCube(pointsList[0], pointsList[1], pointsList[2], pointsList[3]));
         ret.AddRange(GetTrisOfCube(pointsList[2], pointsList[3], pointsList[6], pointsList[7]));

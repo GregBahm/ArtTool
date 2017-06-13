@@ -11,6 +11,7 @@ public class PaintbrushScript : MonoBehaviour
     private Vector3 lastPaintPoint;
 
     public bool Painting;
+    public GameObject PreviewMesh;
 
     private void Start()
     {
@@ -24,8 +25,8 @@ public class PaintbrushScript : MonoBehaviour
         //if(dist > MoveThreshold)
         //{
             lastPaintPoint = transform.position;
-            
             Mothership.AddPoint(Mothership.transform.InverseTransformPoint(currentPos), !Painting);
         //}
+        //PreviewMesh.SetActive(!Painting);
     }
 }
