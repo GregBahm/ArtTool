@@ -6,5 +6,5 @@ using UnityEngine;
 
 public abstract class Paintable : MonoBehaviour
 {
-    public abstract void AddPoint(Vector3 point);
+    public abstract void AddPoint(Vector3 point, bool previewMode);
 }

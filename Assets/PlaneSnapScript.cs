@@ -19,8 +19,39 @@ public class PlaneSnapScript : Paintable
         _mesh = new Mesh();
         _meshFilter = GetComponent<MeshFilter>();
         _meshFilter.mesh = _mesh;
-        _triList = new HashSet<Tri>(GetInitialTris());
+        _triList = new HashSet<Tri>(GetDebugTri());
         UpdateMesh(_mesh, _triList);
+    }
+
+    private IEnumerable<Tri> GetDebugTri()
+    {
+        Vector3 pos0 = new Vector3(-0.445f, 0.35f, 0.8f);
+        Vector3 pos1 = new Vector3(0, 1, 1);
+        Vector3 pos2 = new Vector3(0, 0, 1);
+        Vector3 normalGuide = new Vector3(1, 0, 0);
+        Vert vert0 = new Vert(pos0);
+        Vert vert1 = new Vert(pos1);
+        Vert vert2 = new Vert(pos2);
+        yield return new Tri(vert0, vert1, vert2, normalGuide);
+    }
+
+    public override void AddPoint(Vector3 point, bool previewMode)
+    {
+        Vert vert = new Vert(point);
+        Tri[] oldTriList = _triList.ToArray();
+        HashSet<Tri> newTris = new HashSet<Tri>(oldTriList);
+        List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
+        foreach (Tri tri in oldTriList)
+        {
+            edgesToProcess.AddRange(GetEdgesToProcess(tri, vert, newTris));
+        }
+        List<EdgeDistStatus> culledEdges = GetCulledEdges(edgesToProcess).ToList();
+        DrawNewPolys(culledEdges, vert, newTris);
+        UpdateMesh(_mesh, newTris);
+        if(!previewMode)
+        {
+            _triList = newTris;
+        }
     }
 
     private static List<Vert> GetBox()
@@ -40,21 +71,16 @@ public class PlaneSnapScript : Paintable
     private void UpdateMesh(Mesh mesh, IEnumerable<Tri> tris)
     {
         List<Vector3> vertices = new List<Vector3>();
-        Dictionary<Vert, int> vertsDictionary = new Dictionary<Vert, int>();
         List<int> triangle = new List<int>();
         List<Vector3> normals = new List<Vector3>();
+
         foreach (Tri tri in tris)
         {
             foreach (Vert polyVert in tri.Verts)
             {
-                if (!vertsDictionary.ContainsKey(polyVert))
-                {
-                    vertices.Add(polyVert.Pos);
-                    normals.Add(tri.Normal);
-                    vertsDictionary.Add(polyVert, vertsDictionary.Count);
-                }
-                int newIndex = vertsDictionary[polyVert];
-                triangle.Add(newIndex);
+                vertices.Add(polyVert.Pos);
+                normals.Add(tri.Normal);
+                triangle.Add(vertices.Count - 1);
             }
         }
 
@@ -76,7 +102,7 @@ public class PlaneSnapScript : Paintable
         yield return GetInitialTri(vert0, vert1, vert2, Vector3.one / 2);
         yield return GetInitialTri(vert1, vert2, vert3, Vector3.one / 2);
     }
-    private static List<Tri> GetInitialTris()
+    private static IEnumerable<Tri> GetInitialTris()
     {
         List<Vert> pointsList = GetBox();
         List<Tri> ret = new List<Tri>();
@@ -87,20 +113,6 @@ public class PlaneSnapScript : Paintable
         ret.AddRange(GetTrisOfCube(pointsList[4], pointsList[0], pointsList[6], pointsList[2]));
         ret.AddRange(GetTrisOfCube(pointsList[1], pointsList[3], pointsList[5], pointsList[7]));
         return ret;
-    }
-
-    public override void AddPoint(Vector3 point)
-    {
-        Vert vert = new Vert(point);
-        Tri[] oldTriList = _triList.ToArray();
-        List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
-        foreach (Tri tri in oldTriList)
-        {
-            edgesToProcess.AddRange(GetEdgesToProcess(tri, vert));
-        }
-        List< EdgeDistStatus> culledEdges = GetCulledEdges(edgesToProcess).ToList();
-        DrawNewPolys(culledEdges, vert);
-        UpdateMesh(_mesh, _triList);
     }
 
     private IEnumerable<EdgeDistStatus> GetCulledEdges(IEnumerable<EdgeDistStatus> edgesToProcess)
@@ -122,7 +134,7 @@ public class PlaneSnapScript : Paintable
         return edgesToProcess.Where(item => triPresenceCounter[item.Edge] == 0);
     }
 
-    private IEnumerable<EdgeDistStatus> GetEdgesToProcess(Tri tri, Vert vert)
+    private IEnumerable<EdgeDistStatus> GetEdgesToProcess(Tri tri, Vert vert, HashSet<Tri> triList)
     {
         if(!tri.IsPointCloseToTrianglesPlane(vert.Pos, Margin))
         {
@@ -133,18 +145,18 @@ public class PlaneSnapScript : Paintable
         List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
         if (edgeDistStatus.Any(item => item.WithinMargin) || tri.IsPointWithinBounds(vert.Pos))
         {
-            _triList.Remove(tri);
+            triList.Remove(tri);
             edgesToProcess.AddRange(edgeDistStatus.Where(item => !item.WithinMargin));
         }
         return edgesToProcess;
     }
 
-    private void DrawNewPolys(IEnumerable<EdgeDistStatus> edges, Vert vert)
+    private void DrawNewPolys(IEnumerable<EdgeDistStatus> edges, Vert vert, HashSet<Tri> triList)
     {
         foreach (EdgeDistStatus status in edges)
         {
             Tri newTri = TriFromEdgeToPoint(status.Edge, vert, -status.Tri.Normal);
-            _triList.Add(newTri);
+            triList.Add(newTri);
         }
     }
 
@@ -213,19 +225,19 @@ public class PlaneSnapScript : Paintable
 
         public bool IsWithinSegmentBounds(Vector3 point)
         {
-            return IsWithinSegmentBounds(Vert0.Pos, Vert1.Pos, point);
-        }
+            Vector3 projectedPoint = ProjectOntoEdge(point);
 
-        private bool IsWithinSegmentBounds(Vector3 edgeVertA, Vector3 edgeVertB, Vector3 point)
-        {
-            Vector3 normal = (edgeVertA - edgeVertB).normalized;
-            Vector3 vect = point - edgeVertA;
-            Vector3 projectedPoint = Vector3.Project(vect, normal) + edgeVertA;
-
-            float distTo0 = (edgeVertA - projectedPoint).magnitude;
-            float distTo1 = (edgeVertB - projectedPoint).magnitude;
+            float distTo0 = (Vert0.Pos - projectedPoint).magnitude;
+            float distTo1 = (Vert1.Pos - projectedPoint).magnitude;
 
             return (distTo0 < Length && distTo1 < Length);
+        }
+
+        public Vector3 ProjectOntoEdge(Vector3 point)
+        {
+            Vector3 normal = (Vert0.Pos - Vert1.Pos).normalized;
+            Vector3 vect = point - Vert0.Pos;
+            return Vector3.Project(vect, normal) + Vert0.Pos;
         }
 
         public float DistanceTo(Vector3 point)
@@ -329,9 +341,21 @@ public class PlaneSnapScript : Paintable
             return Math.Abs(_plane.GetDistanceToPoint(point)) < margin;
         }
 
-        internal bool IsPointWithinBounds(Vector3 point)
+        private bool IsOnCorrectSideofEdge(Vector3 point, Edge edge, Vector3 opposingPoint, string debugText)
         {
-            return Edges.All(edge => edge.IsWithinSegmentBounds(point));
+            Vector3 opposingProjected = edge.ProjectOntoEdge(opposingPoint);
+            Vector3 normal = (opposingPoint - opposingProjected).normalized;
+            Plane plane = new Plane(normal, edge.Vert0.Pos);
+            float dist = plane.GetDistanceToPoint(point);
+            return dist > 0;
+        }
+
+    internal bool IsPointWithinBounds(Vector3 point)
+        {
+            bool bound0 = IsOnCorrectSideofEdge(point, Edge0, Vert2.Pos, "A");
+            bool bound1 = IsOnCorrectSideofEdge(point, Edge1, Vert0.Pos, "B");
+            bool bound2 = IsOnCorrectSideofEdge(point, Edge2, Vert1.Pos, "C");
+            return bound0 && bound1 && bound2;
         }
     }
 }

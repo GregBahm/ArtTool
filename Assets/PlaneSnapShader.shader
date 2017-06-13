@@ -1,4 +1,4 @@
-﻿Shader "Unlit/TheShader"
+﻿Shader "Unlit/PlaneSnapShader"
 {
 	Properties
 	{

@@ -12,8 +12,6 @@ public class PaintbrushScript : MonoBehaviour
 
     public bool Painting;
 
-    public bool ManuallyPaint;
-
     private void Start()
     {
         lastPaintPoint = transform.position;
@@ -21,18 +19,13 @@ public class PaintbrushScript : MonoBehaviour
 
     private void Update()
     {
-        if(!Painting && !ManuallyPaint)
-        {
-            return;
-        }
         Vector3 currentPos = transform.position;
         float dist = (lastPaintPoint - currentPos).magnitude;
-        if(dist > MoveThreshold || ManuallyPaint)
-        {
+        //if(dist > MoveThreshold)
+        //{
             lastPaintPoint = transform.position;
             
-            Mothership.AddPoint(Mothership.transform.InverseTransformPoint(currentPos));
-        }
-        ManuallyPaint = false;
+            Mothership.AddPoint(Mothership.transform.InverseTransformPoint(currentPos), !Painting);
+        //}
     }
 }
