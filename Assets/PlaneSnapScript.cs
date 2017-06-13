@@ -29,24 +29,20 @@ public class PlaneSnapScript : Paintable
     {
         Vert vert = new Vert(point);
         Tri[] oldTriList = _triList.ToArray();
-        HashSet<Tri> newTris = new HashSet<Tri>(oldTriList);
+        HashSet<Tri> futureTriList = new HashSet<Tri>(oldTriList);
         List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
         foreach (Tri tri in oldTriList)
         {
-            edgesToProcess.AddRange(GetEdgesToProcess(tri, vert, newTris));
+            edgesToProcess.AddRange(GetEdgesToProcess(tri, vert, futureTriList));
         }
         List<EdgeDistStatus> culledEdges = GetCulledEdges(edgesToProcess).ToList();
-        DrawNewPolys(culledEdges, vert, newTris);
-        Mesh meshToUpdate = previewMode ? _previewMesh : _mainMesh;
-        UpdateMesh(meshToUpdate, newTris);
-        if (previewMode)
-        {
-            PreviewMeshFilter.mesh = _previewMesh;
-        }
-        else
-        {
-            PreviewMeshFilter.mesh = _mainMesh;
-            _triList = newTris;
+        Tri[] newTris = DrawNewPolys(culledEdges, vert, futureTriList).ToArray();
+
+        UpdateMesh(_previewMesh, newTris);
+        if (!previewMode)
+        { 
+            UpdateMesh(_mainMesh, futureTriList);
+            _triList = futureTriList;
         }
     }
 
@@ -147,12 +143,13 @@ public class PlaneSnapScript : Paintable
         return edgesToProcess;
     }
 
-    private void DrawNewPolys(IEnumerable<EdgeDistStatus> edges, Vert vert, HashSet<Tri> triList)
+    private IEnumerable<Tri> DrawNewPolys(IEnumerable<EdgeDistStatus> edges, Vert vert, HashSet<Tri> triList)
     {
         foreach (EdgeDistStatus status in edges)
         {
             Tri newTri = TriFromEdgeToPoint(status.Edge, vert, -status.Tri.Normal);
             triList.Add(newTri);
+            yield return newTri;
         }
     }
 
