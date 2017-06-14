@@ -7,7 +7,7 @@ using System.Linq;
 public class PlaneSnapScript : Paintable
 {
     public float Margin;
-    
+
     private HashSet<Tri> _triList;
 
     private Mesh _mainMesh;
@@ -21,7 +21,7 @@ public class PlaneSnapScript : Paintable
         _previewMesh = new Mesh();
         MainMeshFilter.mesh = _mainMesh;
         PreviewMeshFilter.mesh = _previewMesh;
-        _triList = new HashSet<Tri>(GetInitialTris());
+        _triList = new HashSet<Tri>(GetInitialBoxTris());
         UpdateMesh(_mainMesh, _triList);
     }
 
@@ -31,33 +31,21 @@ public class PlaneSnapScript : Paintable
         Tri[] oldTriList = _triList.ToArray();
         HashSet<Tri> futureTriList = new HashSet<Tri>(oldTriList);
         List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
+
         foreach (Tri tri in oldTriList)
         {
             edgesToProcess.AddRange(GetEdgesToProcess(tri, vert, futureTriList));
         }
+
         List<EdgeDistStatus> culledEdges = GetCulledEdges(edgesToProcess).ToList();
         Tri[] newTris = DrawNewPolys(culledEdges, vert, futureTriList).ToArray();
 
         UpdateMesh(_previewMesh, newTris);
         if (!previewMode)
-        { 
+        {
             UpdateMesh(_mainMesh, futureTriList);
             _triList = futureTriList;
         }
-    }
-
-    private static List<Vert> GetBoxVerts()
-    {
-        Vert[] ret = new Vert[8];
-        ret[0] = new Vert(new Vector3(1, 1, 1));
-        ret[1] = new Vert(new Vector3(1, 0, 1));
-        ret[2] = new Vert(new Vector3(1, 1, 0));
-        ret[3] = new Vert(new Vector3(1, 0, 0));
-        ret[4] = new Vert(new Vector3(0, 1, 1));
-        ret[5] = new Vert(new Vector3(0, 0, 1));
-        ret[6] = new Vert(new Vector3(0, 1, 0));
-        ret[7] = new Vert(new Vector3(0, 0, 0));
-        return ret.ToList();
     }
 
     private void UpdateMesh(Mesh mesh, IEnumerable<Tri> tris)
@@ -94,9 +82,24 @@ public class PlaneSnapScript : Paintable
         yield return GetInitialTri(vert0, vert1, vert2, Vector3.one / 2);
         yield return GetInitialTri(vert1, vert2, vert3, Vector3.one / 2);
     }
-    private static IEnumerable<Tri> GetInitialTris()
+
+    private static List<Vert> GetInitialBoxVerts()
     {
-        List<Vert> pointsList = GetBoxVerts();
+        Vert[] ret = new Vert[8];
+        ret[0] = new Vert(new Vector3(1, 1, 1));
+        ret[1] = new Vert(new Vector3(1, 0, 1));
+        ret[2] = new Vert(new Vector3(1, 1, 0));
+        ret[3] = new Vert(new Vector3(1, 0, 0));
+        ret[4] = new Vert(new Vector3(0, 1, 1));
+        ret[5] = new Vert(new Vector3(0, 0, 1));
+        ret[6] = new Vert(new Vector3(0, 1, 0));
+        ret[7] = new Vert(new Vector3(0, 0, 0));
+        return ret.ToList();
+    }
+
+    private static IEnumerable<Tri> GetInitialBoxTris()
+    {
+        List<Vert> pointsList = GetInitialBoxVerts();
         List<Tri> ret = new List<Tri>();
         ret.AddRange(GetTrisOfCube(pointsList[0], pointsList[1], pointsList[2], pointsList[3]));
         ret.AddRange(GetTrisOfCube(pointsList[2], pointsList[3], pointsList[6], pointsList[7]));
@@ -114,7 +117,7 @@ public class PlaneSnapScript : Paintable
         Dictionary<Edge, int> triPresenceCounter = new Dictionary<Edge, int>();
         foreach (EdgeDistStatus status in edgesToProcess)
         {
-            if(triPresenceCounter.ContainsKey(status.Edge))
+            if (triPresenceCounter.ContainsKey(status.Edge))
             {
                 triPresenceCounter[status.Edge]++;
             }
@@ -128,15 +131,17 @@ public class PlaneSnapScript : Paintable
 
     private IEnumerable<EdgeDistStatus> GetEdgesToProcess(Tri tri, Vert vert, HashSet<Tri> triList)
     {
-        if(!tri.IsPointCloseToTrianglesPlane(vert.Pos, Margin))
+        if (!tri.IsPointCloseToTrianglesPlane(vert.Pos, Margin))
         {
             return new EdgeDistStatus[0];
         }
 
         EdgeDistStatus[] edgeDistStatus = tri.Edges.Select(edge => new EdgeDistStatus(edge, tri, vert.Pos, Margin)).ToArray();
         List<EdgeDistStatus> edgesToProcess = new List<EdgeDistStatus>();
-        if (edgeDistStatus.Any(item => item.WithinMargin) || tri.IsPointWithinBounds(vert.Pos))
+        bool shouldRemove = edgeDistStatus.Any(item => item.WithinMargin|| tri.IsPointWithinBounds(vert.Pos));
+        if (shouldRemove)
         {
+            // If the new vert is close to another vert, I need to change this logic
             triList.Remove(tri);
             edgesToProcess.AddRange(edgeDistStatus.Where(item => !item.WithinMargin));
         }
@@ -168,6 +173,9 @@ public class PlaneSnapScript : Paintable
         private bool _withinMargin;
         public bool WithinMargin { get { return _withinMargin; } }
 
+        private bool _withinSegmentBounds;
+        public bool WithinSegmentBounds {get{return _withinSegmentBounds;} }
+
         private readonly Tri _tri;
         public Tri Tri { get { return _tri; } }
 
@@ -176,6 +184,7 @@ public class PlaneSnapScript : Paintable
             _edge = edge;
             _tri = tri;
             _withinMargin = edge.DistanceTo(point) < margin;
+            _withinSegmentBounds = edge.IsWithinSegmentBounds(point);
         }
     }
 
